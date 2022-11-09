@@ -13,8 +13,16 @@ class BaseLoggingMixin:
 	sensitive_fields = {}
 	CLEANED_SUBSTITUTE = '*****************'
 
+	def __init__(self, *args, **kwargs):
+		assert isinstance(self.CLEANED_SUBSTITUTE, str), 'CLEANED_SUBSTITUTE must be a string.'
+		super().__init__(*args, **kwargs)
+
 	def initial(self, request, *args, **kwargs):
 		self.log = {'requested_at':now()}
+		if not getattr(self, 'decode_request_body', app_settings.DECODE_REQUEST_BODY):
+			self.log['data'] = ''
+		else:
+			self.log['data'] = request.data
 		return super().initial(request, *args, **kwargs)
 
 	def handle_exception(self, exc):
@@ -105,6 +113,8 @@ class BaseLoggingMixin:
 		)
 
 	def _clean_data(self, data):
+		if isinstance(data, bytes):
+			data = data.decode(errors='replace')
 
 		if isinstance(data, list):
 			return [self._clean_data(d) for d in data]
