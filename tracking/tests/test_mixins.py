@@ -1,6 +1,9 @@
+import ast
 from rest_framework.test import  APITestCase, APIRequestFactory
 from tracking.models import APIRequestLog
+from tracking.mixins import BaseLoggingMixin
 from django.test import override_settings
+from django.contrib.auth.models import User
 from .views import MockLoggingView
 
 
@@ -89,3 +92,46 @@ class TestLoggingMixin(APITestCase):
 		self.client.get('/logging/')
 		log = APIRequestLog.objects.first()
 		self.assertEqual(log.status_code, 200)
+
+	def test_logging_explicit(self):
+		self.client.get('/explicit-logging/')
+		self.client.post('/explicit-logging/')
+		self.assertEqual(APIRequestLog.objects.all().count(), 1)
+
+	def test_custom_check_logging(self):
+		self.client.get('/custom-check-logging/')
+		self.client.post('/custom-check-logging/')
+		self.assertEqual(APIRequestLog.objects.all().count(), 1)
+
+	def test_log_anon_user(self):
+		self.client.get('/logging/')
+		log = APIRequestLog.objects.first()
+		self.assertEqual(log.user, None)
+
+	def test_log_auth_user(self):
+		User.objects.create_user(username='myname', password='secret')
+		user = User.objects.get(username='myname')
+
+		self.client.login(username='myname', password='secret')
+		self.client.get('/session-auth-logging/')
+
+		log = APIRequestLog.objects.first()
+		self.assertEqual(log.user, user)
+
+	def test_log_params(self):
+		self.client.get('/logging/', {'p1':'a', 'another':'2'})
+		log = APIRequestLog.objects.first()
+		self.assertEqual(ast.literal_eval(log.query_params), {'p1':'a', 'another':'2'})
+
+	def test_log_params_cleaned_from_personal_list(self):
+		self.client.get('/sensitive-fields-logging/', {'api':'1234', 'capitalized':'12345', 'my_field':'123456'})
+		log = APIRequestLog.objects.first()
+		self.assertEqual(ast.literal_eval(log.query_params), {
+			'api': BaseLoggingMixin.CLEANED_SUBSTITUTE,
+			'capitalized': '12345',
+			'my_field': BaseLoggingMixin.CLEANED_SUBSTITUTE
+		})
+
+	def test_invalid_cleaned_substitute_fails(self):
+		with self.assertRaises(AssertionError):
+			self.client.get('/invalid-cleaned-substitute-logging/')
